@@ -14,7 +14,8 @@ Initially, it was an internal crate for a [multiplayer RPG that I am working on.
 
 Grubbnet abstracts socket code, keeps track of connections, and delivers everything back to the developer in a
 nice list of events. Instead of dealing with raw bytes, Grubbnet operates based on packets that the developer can
-define. Handling these packets is as simple as grabbing an iterator over the incoming packet queue.
+define. The developer also defines the serialization method, so you can send json, xml, binary, or whatever else you want. 
+Handling these packets is as simple as grabbing an iterator over the incoming packet queue.
 
 ## Usage
  Add this to your `Cargo.toml`:
@@ -34,6 +35,8 @@ impl PacketBody for MessagePacket {
     }
 
     fn serialize(&self) -> Vec<u8> {
+        // Define your own serialization here.
+        // I like to use serde & bincode.
         bincode::config()
             .big_endian()
             .serialize::<Self>(&self)
