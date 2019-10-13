@@ -1,6 +1,6 @@
 [package]
 name = "grubbnet"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Declan Hopkins <hopkins.declan@gmail.com>"]
 edition = "2018"
 license = "MIT"
