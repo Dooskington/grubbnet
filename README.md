@@ -54,8 +54,8 @@ loop {
 }
 ```
 
-## Examples
-I have written one example so far, which is a simple ping server and client.
+## Example
+I have written one example (split into two parts): a simple ping server and client.
  ```
 cargo run --example simple_server
 cargo run --example simple_client
