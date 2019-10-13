@@ -1,0 +1,21 @@
+[package]
+name = "grubbnet"
+version = "0.1.0"
+authors = ["Declan Hopkins <hopkins.declan@gmail.com>"]
+edition = "2018"
+
+[lib]
+name = "grubbnet"
+crate-type = ["rlib"]
+
+[dependencies]
+mio = "0.6"
+byteorder = "1"
+derive_more = "0.15.0"
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.1.4"
+openssl = { version = "0.10.24", optional = true }
+bcrypt = { version = "0.4", optional = true }
+
+[features]
+crypto = ["openssl", "bcrypt"]
