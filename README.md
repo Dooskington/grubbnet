@@ -26,29 +26,59 @@ or are already using it for a project, get in touch!
  grubbnet = "0.1"
  ```
 
-Hosting a barebones server:
+Hosting a barebones server that sends a simple packet:
 ```rust
-let mut server = Server::host("127.0.0.1", 7667, 32)?;
-loop {
-    // Run the network tick and process any events it generates
-    for event in server.tick().iter() {
-        match event {
-            ServerEvent::ClientConnected(token, addr) => {}
-            ServerEvent::ClientDisconnected(token) => {}
-            ServerEvent::ConnectionRejected(addr) => {}
-            ServerEvent::ReceivedPacket(token, byte_count) => {}
-            ServerEvent::SentPacket(token, byte_count) => {}
-            _ => eprintln!("Unhandled ServerEvent!"),
-        }
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct MessagePacket { pub msg: String }
+
+impl PacketBody for PongPacket {
+    fn box_clone(&self) -> Box<dyn PacketBody> {
+        Box::new((*self).clone())
     }
 
-    // Process incoming packets
-    for (token, packet) in server.drain_incoming_packets().iter() {
-        match packet.header.id {
-            0x00 => { 
-                // Deserialize and handle, however you like
+    fn serialize(&self) -> Vec<u8> {
+        bincode::config()
+            .big_endian()
+            .serialize::<Self>(&self)
+            .unwrap()
+    }
+
+    fn deserialize(_data: &[u8]) -> Self {
+        panic!("Attempted to deserialize a server-only packet!");
+    }
+
+    fn id(&self) -> u8 {
+        0x00
+    }
+}
+
+fn main() -> Result<()> {
+    let mut server = Server::host("127.0.0.1", 7667, 32)?;
+    loop {
+        // Run the network tick and process any events it generates
+        for event in server.tick().iter() {
+            match event {
+                ServerEvent::ClientConnected(token, addr) => {
+                    // Send a message packet when a client connects
+                    let pckt = MessagePacket { msg: "Hello, world!".to_owned() };
+                    server.send(PacketRecipient::Single(*token), pckt);
+                }
+                ServerEvent::ClientDisconnected(token) => {}
+                ServerEvent::ConnectionRejected(addr) => {}
+                ServerEvent::ReceivedPacket(token, byte_count) => {}
+                ServerEvent::SentPacket(token, byte_count) => {}
+                _ => eprintln!("Unhandled ServerEvent!"),
             }
-            _ => eprintln!("Unhandled packet! id: {}", packet.header.id)
+        }
+
+        // Process incoming packets
+        for (token, packet) in server.drain_incoming_packets().iter() {
+            match packet.header.id {
+                0x00 => { 
+                    // Deserialize and handle, however you like
+                }
+                _ => eprintln!("Unhandled packet! id: {}", packet.header.id)
+            }
         }
     }
 }
