@@ -4,7 +4,7 @@
 
 Grubbnet
 ========
-![crates.io](https://img.shields.io/crates/v/grubbnet.svg)
+[![crates.io](https://img.shields.io/crates/v/grubbnet.svg)](https://crates.io/crates/grubbnet)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://docs.rs/grubbnet/badge.svg)](https://docs.rs/grubbnet)
 
