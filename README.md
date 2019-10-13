@@ -31,7 +31,7 @@ Hosting a barebones server that sends a simple packet:
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct MessagePacket { pub msg: String }
 
-impl PacketBody for PongPacket {
+impl PacketBody for MessagePacket {
     fn box_clone(&self) -> Box<dyn PacketBody> {
         Box::new((*self).clone())
     }
