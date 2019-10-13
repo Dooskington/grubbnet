@@ -4,7 +4,9 @@
 
 Grubbnet
 ========
+![crates.io](https://img.shields.io/crates/v/grubbnet.svg)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Documentation](https://docs.rs/grubbnet/badge.svg)](https://docs.rs/grubbnet)
 
 Grubbnet is a lightweight TCP client/server library, meant for writing networked applications and games. 
 It is basically an evolution and combination of all the TCP boilerplate I usually have to write whenever
