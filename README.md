@@ -9,15 +9,12 @@ Grubbnet
 [![Documentation](https://docs.rs/grubbnet/badge.svg)](https://docs.rs/grubbnet)
 
 Grubbnet is a lightweight TCP client/server library, meant for writing networked applications and games. 
-It is basically an evolution and combination of all the TCP boilerplate I usually have to write whenever
-I work on a networked project.
+It's a combination of all the TCP boilerplate I usually find myself writing when I work on a networked project. 
+Initially, it was an internal crate for a [multiplayer RPG that I am working on.](https://dooskington.com/dev-log/0)
 
 Grubbnet abstracts socket code, keeps track of connections, and delivers everything back to the developer in a
 nice list of events. Instead of dealing with raw bytes, Grubbnet operates based on packets that the developer can
 define. Handling these packets is as simple as grabbing an iterator over the incoming packet queue.
-
-I'm using this crate to develop an online RPG, [Antorum](https://dooskington.com/dev-log/0). If you want to use it, 
-or are already using it for a project, get in touch!
 
 ## Usage
  Add this to your `Cargo.toml`:
