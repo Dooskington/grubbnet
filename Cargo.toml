@@ -3,6 +3,11 @@ name = "grubbnet"
 version = "0.1.0"
 authors = ["Declan Hopkins <hopkins.declan@gmail.com>"]
 edition = "2018"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/dooskington/grubbnet"
+homepage = "https://crates.io/crates/grubbnet"
+description = "Lightweight TCP client/server library for writing networked applications and games"
 
 [lib]
 name = "grubbnet"
