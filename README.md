@@ -1,4 +1,11 @@
-# Grubbnet
+<a href="https://github.com/Dooskington/grubbnet/">
+    <img src="https://i.imgur.com/O2XnKQE.png" alt="Grubbnet icon" title="Antorum" align="left" height="64" width="64" />
+</a>
+
+Grubbnet
+========
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Grubbnet is a lightweight TCP client/server library, meant for writing networked applications and games. 
 It is basically an evolution and combination of all the TCP boilerplate I usually have to write whenever
 I work on a networked project.
