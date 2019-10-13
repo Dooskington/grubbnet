@@ -1,4 +1,4 @@
-use doosknet::{packet::PacketBody, Result, Client, ClientEvent};
+use grubbnet::{packet::PacketBody, Result, Client, ClientEvent};
 
 /// 0x00 - Ping Packet
 /// Client

@@ -1,4 +1,4 @@
-use doosknet::{packet::PacketBody, Result, Server, ServerEvent, Token, PacketRecipient};
+use grubbnet::{packet::PacketBody, Result, Server, ServerEvent, Token, PacketRecipient};
 use std::collections::HashMap;
 
 /// 0x00 - Ping Packet
