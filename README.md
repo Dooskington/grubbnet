@@ -13,9 +13,12 @@ It's a combination of all the TCP boilerplate I usually find myself writing when
 Initially, it was an internal crate for a [multiplayer RPG.](https://dooskington.com/dev-log/0)
 
 Grubbnet abstracts socket code, keeps track of connections, and delivers everything back to the developer in a
-nice list of events. Instead of dealing with raw bytes, Grubbnet operates based on packets that the developer can
-define. The developer also defines the serialization method, so you can send json, xml, binary, or whatever else you want. 
-Handling these packets is as simple as grabbing an iterator over the incoming packet queue.
+nice list of events. In addition to handling network events (such as client connects and disconnects), handling incoming packets is is as easy as grabbing an iterator over the incoming packet queue.
+
+## Headers and Packets
+Instead of dealing with raw bytes, Grubbnet operates based on packets that the developer can define. You can turn a struct into a packet by implementing the `PacketBody` trait, then defining the serialization and deserialization that you want. Since this functionality is in your hands, you can use whatever form of serialization/deserialization that you want. At runtime, a packet header is created, your serialized packet body is tacked onto that, and the complete packet is sent across the wire.
+
+Packet headers are 3 bytes (2 bytes for a 16 bit body size, and 1 byte for an 8 bit packet id). In the future, I'd like to allow developers to also define their own header for more flexibility. The header allows Grubbnet to recognize when it's being sent a packet, what the packet type is, and how many bytes it needs to wait for before it has all the data required to reconstruct the packet. After this happens, the packet id and (still serialized) body are handed back to the developer through the incoming packet queue, and they can do as they please with it.
 
 ## Usage
  Add this to your `Cargo.toml`:
@@ -31,6 +34,7 @@ pub struct MessagePacket { pub msg: String }
 
 impl PacketBody for MessagePacket {
     fn box_clone(&self) -> Box<dyn PacketBody> {
+        // This is used internally. Hopefully it can be removed some day.
         Box::new((*self).clone())
     }
 
