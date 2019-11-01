@@ -128,4 +128,4 @@ if grubbnet::crypto::verify(plaintext_password, hashed_password)? {
 # License
 
 Grubbnet is distributed under the terms of the MIT license.
-See [LICENSE](LICENSE) for more details.
+See [LICENSE](LICENSE.md) for more details.
