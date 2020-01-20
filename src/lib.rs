@@ -21,6 +21,7 @@ pub enum PacketRecipient {
     Single(Token),
     Exclude(Token),
     ExcludeMany(Vec<Token>),
+    Include(Vec<Token>),
 }
 
 /// Send some bytes to a socket.

@@ -149,6 +149,12 @@ impl Server {
                     connection.outgoing_packets.push_back(packet_boxed.clone());
                 }
             }
+            PacketRecipient::Include(targets) => {
+                let filtered = self.connections.iter_mut().filter(|(tok, _c)| targets.contains(tok));
+                for (_token, connection) in filtered {
+                    connection.outgoing_packets.push_back(packet_boxed.clone());
+                }
+            }
         }
     }
 
