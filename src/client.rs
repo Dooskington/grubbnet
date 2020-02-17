@@ -144,7 +144,14 @@ impl Client {
                     // Handle writing
                     if event.readiness().is_writable() {
                         while let Some(packet) = self.outgoing_packets.pop_front() {
-                            let data = serialize_packet(packet);
+                            let data = match serialize_packet(packet) {
+                                Ok(d) => d,
+                                Err(e) => {
+                                    eprintln!("Failed to serialize packet! {}", e);
+                                    continue;
+                                }
+                            };
+
                             match send_bytes(&mut self.tcp_stream, &data) {
                                 Ok(sent_bytes) => {
                                     net_events.push(ClientEvent::SentPacket(sent_bytes));

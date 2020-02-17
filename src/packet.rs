@@ -24,8 +24,8 @@ pub struct PacketHeader {
 pub trait PacketBody: Any {
     fn box_clone(&self) -> Box<dyn PacketBody>;
 
-    fn serialize(&self) -> Vec<u8>;
-    fn deserialize(data: &[u8]) -> Self
+    fn serialize(&self) -> Result<Vec<u8>, Error>;
+    fn deserialize(data: &[u8]) -> Result<Self, Error>
     where
         Self: Sized;
     fn id(&self) -> u8;
@@ -45,15 +45,14 @@ pub struct Packet {
     pub body: Vec<u8>,
 }
 
-pub fn serialize_packet(body: Box<dyn PacketBody>) -> Vec<u8> {
+pub fn serialize_packet(body: Box<dyn PacketBody>) -> Result<Vec<u8>, Error> {
     // Serialize the packet body first so we know the size
-    let mut body_data: Vec<u8> = body.serialize();
+    let mut body_data: Vec<u8> = body.serialize()?;
 
     // Create payload and write header (body size and id)
     let mut data: Vec<u8> = Vec::new();
-    data.write_u16::<NetworkEndian>(body_data.len() as u16)
-        .unwrap();
-    data.write_u8(body.id()).unwrap();
+    data.write_u16::<NetworkEndian>(body_data.len() as u16)?;
+    data.write_u8(body.id())?;
 
     // TODO (Declan, 4/26/2019)
     // Need to add some sort of magic number to the header to make sure the packet was meant for us
@@ -61,14 +60,14 @@ pub fn serialize_packet(body: Box<dyn PacketBody>) -> Vec<u8> {
     // Combine the body and header
     data.append(&mut body_data);
 
-    data
+    Ok(data)
 }
 
 pub fn deserialize_packet_header(buffer: &mut NetworkBuffer) -> Result<PacketHeader, Error> {
     let mut reader = Cursor::new(&buffer.data[..]);
 
     // Read body size
-    let body_size = reader.read_u16::<NetworkEndian>().unwrap() as usize;
+    let body_size = reader.read_u16::<NetworkEndian>()? as usize;
 
     // If the packet is too big, kick the client so we have some basic protection from being overloaded
     if body_size >= MAX_PACKET_BODY_SIZE {
@@ -81,7 +80,7 @@ pub fn deserialize_packet_header(buffer: &mut NetworkBuffer) -> Result<PacketHea
     }
 
     // Read packet id
-    let packet_id = reader.read_u8().unwrap();
+    let packet_id = reader.read_u8()?;
 
     let header = PacketHeader {
         size: body_size as u16,
