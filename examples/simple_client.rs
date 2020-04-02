@@ -12,14 +12,14 @@ impl PacketBody for PingPacket {
         Box::new((*self).clone())
     }
 
-    fn serialize(&self) -> Vec<u8> {
-        bincode::config()
-            .big_endian()
-            .serialize::<Self>(&self)
-            .unwrap()
+    fn serialize(&self) -> Result<Vec<u8>> {
+        match bincode::config().big_endian().serialize::<Self>(&self) {
+            Ok(d) => Ok(d),
+            Err(_e) => Err(grubbnet::Error::InvalidData),
+        }
     }
 
-    fn deserialize(_data: &[u8]) -> Self {
+    fn deserialize(_data: &[u8]) -> Result<Self> {
         panic!("Attempted to deserialize a client-only packet!");
     }
 
@@ -40,15 +40,15 @@ impl PacketBody for PongPacket {
         Box::new((*self).clone())
     }
 
-    fn serialize(&self) -> Vec<u8> {
+    fn serialize(&self) -> Result<Vec<u8>> {
         panic!("Attempted to serialize a server-only packet!");
     }
 
-    fn deserialize(data: &[u8]) -> Self {
-        bincode::config()
-            .big_endian()
-            .deserialize::<Self>(data)
-            .unwrap()
+    fn deserialize(data: &[u8]) -> Result<Self> {
+        match bincode::config().big_endian().deserialize::<Self>(data) {
+            Ok(p) => Ok(p),
+            Err(_e) => Err(grubbnet::Error::InvalidData),
+        }
     }
 
     fn id(&self) -> u8 {
@@ -99,7 +99,7 @@ fn main() -> Result<()> {
             match packet.header.id {
                 0x00 => {
                     let packet = PongPacket::deserialize(&packet.body);
-                    println!("Got pong: {}", packet.msg);
+                    println!("Got pong: {}", packet.unwrap().msg);
                 }
                 _ => eprintln!("Unhandled packet! id: {}", packet.header.id)
             }
