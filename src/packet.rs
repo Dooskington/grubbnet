@@ -8,7 +8,7 @@ use std::any::Any;
 use std::io::Cursor;
 
 pub const PACKET_HEADER_SIZE: usize = 3; // 2 bytes for size, 1 byte for id
-pub const MAX_PACKET_BODY_SIZE: usize = 1024;
+pub const MAX_PACKET_BODY_SIZE: usize = 8192;
 pub const MAX_PACKET_SIZE: usize = PACKET_HEADER_SIZE + MAX_PACKET_BODY_SIZE;
 
 /// PacketHeader
