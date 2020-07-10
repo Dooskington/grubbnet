@@ -21,7 +21,7 @@ pub struct PacketHeader {
 
 /// PacketBody
 /// Implementors of this trait can be serialized into a packet body.
-pub trait PacketBody: Any {
+pub trait PacketBody: Any + Send + Sync {
     fn box_clone(&self) -> Box<dyn PacketBody>;
 
     fn serialize(&self) -> Result<Vec<u8>, Error>;
