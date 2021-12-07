@@ -1,6 +1,6 @@
+mod client;
 mod error;
 mod server;
-mod client;
 
 pub mod buffer;
 pub mod packet;
@@ -11,10 +11,10 @@ pub mod crypto;
 use mio::net::TcpStream;
 use std::io::Write;
 
-pub use mio::Token;
-pub use error::{Error, Result};
-pub use server::{Server, ServerEvent};
 pub use client::{Client, ClientEvent};
+pub use error::{Error, Result};
+pub use mio::Token;
+pub use server::{Server, ServerEvent};
 
 pub enum PacketRecipient {
     All,

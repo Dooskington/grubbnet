@@ -1,20 +1,11 @@
 use crate::{
     buffer::NetworkBuffer,
     error::Result,
-    packet::{
-        deserialize_packet_header, serialize_packet, Packet, PacketBody,
-        PACKET_HEADER_SIZE,
-    },
+    packet::{deserialize_packet_header, serialize_packet, Packet, PacketBody, PACKET_HEADER_SIZE},
     send_bytes,
 };
-use mio::{
-    net::TcpStream,
-    Events, Poll, PollOpt, Ready, Token,
-};
-use std::{
-    collections::VecDeque,
-    io::Read,
-};
+use mio::{net::TcpStream, Events, Poll, PollOpt, Ready, Token};
+use std::{collections::VecDeque, io::Read};
 
 const LOCAL_TOKEN: Token = Token(0);
 const EVENTS_CAPACITY: usize = 4096;
@@ -45,7 +36,12 @@ impl Client {
 
         // Register for reading/writing
         let poll = Poll::new().unwrap();
-        poll.register(&tcp_stream, LOCAL_TOKEN, Ready::readable() | Ready::writable(), PollOpt::edge())?;
+        poll.register(
+            &tcp_stream,
+            LOCAL_TOKEN,
+            Ready::readable() | Ready::writable(),
+            PollOpt::edge(),
+        )?;
 
         Ok(Client {
             tcp_stream,
@@ -78,7 +74,8 @@ impl Client {
         }
 
         let timeout_dur = std::time::Duration::from_millis(1);
-        self.poll.poll(&mut self.events, Some(timeout_dur))
+        self.poll
+            .poll(&mut self.events, Some(timeout_dur))
             .unwrap_or_else(|e| panic!("Failed to poll for events! {}", e));
 
         let mut net_events: Vec<ClientEvent> = Vec::new();
@@ -86,22 +83,24 @@ impl Client {
             match event.token() {
                 // Local socket is ready to read/write
                 LOCAL_TOKEN => {
-
                     // Handle reading
                     if event.readiness().is_readable() {
                         loop {
                             // Read until there are no more incoming bytes
-                            match self.tcp_stream.read(&mut self.buffer.data[self.buffer.offset..]) {
+                            match self
+                                .tcp_stream
+                                .read(&mut self.buffer.data[self.buffer.offset..])
+                            {
                                 Ok(0) => {
                                     // "Read" 0 bytes, which means we have been disconnected
                                     net_events.push(ClientEvent::Disconnected);
                                     self.is_disconnected = true;
                                     break;
-                                },
+                                }
                                 Ok(read_bytes) => {
                                     // Read some bytes
                                     self.buffer.offset += read_bytes;
-                                },
+                                }
                                 Err(e) => {
                                     // Socket is not ready anymore, stop reading
                                     if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -130,10 +129,7 @@ impl Client {
                             let body = bytes.to_vec();
                             self.buffer.drain(packet_size);
 
-                            let packet = Packet {
-                                header,
-                                body,
-                            };
+                            let packet = Packet { header, body };
 
                             self.incoming_packets.push_back(packet);
 
@@ -155,7 +151,7 @@ impl Client {
                             match send_bytes(&mut self.tcp_stream, &data) {
                                 Ok(sent_bytes) => {
                                     net_events.push(ClientEvent::SentPacket(sent_bytes));
-                                },
+                                }
                                 Err(e) => {
                                     net_events.push(ClientEvent::Disconnected);
 
@@ -166,14 +162,21 @@ impl Client {
                             }
                         }
                     }
-                },
-                _ => unreachable!()
+                }
+                _ => unreachable!(),
             }
         }
 
         // We're done processing events for this tick.
         // Reregister for next tick.
-        self.poll.reregister(&self.tcp_stream, LOCAL_TOKEN, Ready::readable() | Ready::writable(), PollOpt::edge()).unwrap();
+        self.poll
+            .reregister(
+                &self.tcp_stream,
+                LOCAL_TOKEN,
+                Ready::readable() | Ready::writable(),
+                PollOpt::edge(),
+            )
+            .unwrap();
 
         net_events
     }

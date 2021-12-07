@@ -1,4 +1,4 @@
-use grubbnet::{packet::PacketBody, Result, Client, ClientEvent};
+use grubbnet::{packet::PacketBody, Client, ClientEvent, Result};
 
 /// 0x00 - Ping Packet
 /// Client
@@ -68,8 +68,9 @@ fn main() -> Result<()> {
         // Send a ping packet every 20 ticks
         counter += 1;
         if (counter % 20) == 0 {
-
-            let ping = PingPacket { msg: format!("Ping! Tick {}", counter)};
+            let ping = PingPacket {
+                msg: format!("Ping! Tick {}", counter),
+            };
             client.send(ping);
         }
 
@@ -101,7 +102,7 @@ fn main() -> Result<()> {
                     let packet = PongPacket::deserialize(&packet.body);
                     println!("Got pong: {}", packet.unwrap().msg);
                 }
-                _ => eprintln!("Unhandled packet! id: {}", packet.header.id)
+                _ => eprintln!("Unhandled packet! id: {}", packet.header.id),
             }
         }
     }

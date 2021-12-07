@@ -1,4 +1,4 @@
-use grubbnet::{packet::PacketBody, Result, Server, ServerEvent, Token, PacketRecipient};
+use grubbnet::{packet::PacketBody, PacketRecipient, Result, Server, ServerEvent, Token};
 use std::collections::HashMap;
 
 /// 0x00 - Ping Packet
@@ -123,11 +123,13 @@ fn main() -> Result<()> {
                         ping_counters.remove_entry(token);
                     } else {
                         // Otherwise just send a ping response (pong).
-                        let pong = PongPacket { msg: "Pong!".to_owned() };
+                        let pong = PongPacket {
+                            msg: "Pong!".to_owned(),
+                        };
                         server.send(PacketRecipient::Single(*token), pong);
                     }
                 }
-                _ => eprintln!("Unhandled packet! id: {}", packet.header.id)
+                _ => eprintln!("Unhandled packet! id: {}", packet.header.id),
             }
         }
     }

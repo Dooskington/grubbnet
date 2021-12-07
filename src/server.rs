@@ -1,7 +1,9 @@
-use crate::{buffer::NetworkBuffer, error::{Error, Result}, packet::{
-    deserialize_packet_header, serialize_packet, Packet, PacketBody,
-    PACKET_HEADER_SIZE,
-}, send_bytes, PacketRecipient};
+use crate::{
+    buffer::NetworkBuffer,
+    error::{Error, Result},
+    packet::{deserialize_packet_header, serialize_packet, Packet, PacketBody, PACKET_HEADER_SIZE},
+    send_bytes, PacketRecipient,
+};
 use mio::{
     net::{TcpListener, TcpStream},
     Events, Poll, PollOpt, Ready, Token,
@@ -134,8 +136,10 @@ impl Server {
                     connection.outgoing_packets.push_back(packet_boxed.clone());
                 }
             }
-            PacketRecipient::Single(t) => if let Some(connection) = self.connections.get_mut(&t) {
-                connection.outgoing_packets.push_back(packet_boxed);
+            PacketRecipient::Single(t) => {
+                if let Some(connection) = self.connections.get_mut(&t) {
+                    connection.outgoing_packets.push_back(packet_boxed);
+                }
             }
             PacketRecipient::Exclude(t) => {
                 let filtered = self.connections.iter_mut().filter(|(tok, _c)| tok.0 != t.0);
@@ -144,13 +148,19 @@ impl Server {
                 }
             }
             PacketRecipient::ExcludeMany(filter) => {
-                let filtered = self.connections.iter_mut().filter(|(tok, _c)| !filter.contains(tok));
+                let filtered = self
+                    .connections
+                    .iter_mut()
+                    .filter(|(tok, _c)| !filter.contains(tok));
                 for (_token, connection) in filtered {
                     connection.outgoing_packets.push_back(packet_boxed.clone());
                 }
             }
             PacketRecipient::Include(targets) => {
-                let filtered = self.connections.iter_mut().filter(|(tok, _c)| targets.contains(tok));
+                let filtered = self
+                    .connections
+                    .iter_mut()
+                    .filter(|(tok, _c)| targets.contains(tok));
                 for (_token, connection) in filtered {
                     connection.outgoing_packets.push_back(packet_boxed.clone());
                 }
@@ -250,10 +260,7 @@ impl Server {
                             let body = bytes.to_vec();
                             conn.buffer.drain(packet_size);
 
-                            let packet = Packet {
-                                header,
-                                body,
-                            };
+                            let packet = Packet { header, body };
 
                             self.incoming_packets.push_back((token, packet));
 
