@@ -4,7 +4,7 @@ use crate::{
     packet::{deserialize_packet_header, serialize_packet, Packet, PacketBody, PACKET_HEADER_SIZE},
     send_bytes,
 };
-use mio::{net::TcpStream, Events, Poll, PollOpt, Ready, Token};
+use mio::{net::TcpStream, Events, Interest, Poll, Token};
 use std::{collections::VecDeque, io::Read};
 
 const LOCAL_TOKEN: Token = Token(0);
@@ -32,15 +32,14 @@ pub struct Client {
 impl Client {
     pub fn connect(ip: &str, port: u16) -> Result<Client> {
         let address = format!("{}:{}", ip, port).parse().unwrap();
-        let tcp_stream = TcpStream::connect(&address)?;
+        let mut tcp_stream = TcpStream::connect(address)?;
 
         // Register for reading/writing
         let poll = Poll::new().unwrap();
-        poll.register(
-            &tcp_stream,
+        poll.registry().register(
+            &mut tcp_stream,
             LOCAL_TOKEN,
-            Ready::readable() | Ready::writable(),
-            PollOpt::edge(),
+            Interest::READABLE | Interest::WRITABLE,
         )?;
 
         Ok(Client {
@@ -84,7 +83,7 @@ impl Client {
                 // Local socket is ready to read/write
                 LOCAL_TOKEN => {
                     // Handle reading
-                    if event.readiness().is_readable() {
+                    if event.is_readable() {
                         loop {
                             // Read until there are no more incoming bytes
                             match self
@@ -138,7 +137,7 @@ impl Client {
                     }
 
                     // Handle writing
-                    if event.readiness().is_writable() {
+                    if event.is_writable() {
                         while let Some(packet) = self.outgoing_packets.pop_front() {
                             let data = match serialize_packet(packet) {
                                 Ok(d) => d,
@@ -170,11 +169,11 @@ impl Client {
         // We're done processing events for this tick.
         // Reregister for next tick.
         self.poll
+            .registry()
             .reregister(
-                &self.tcp_stream,
+                &mut self.tcp_stream,
                 LOCAL_TOKEN,
-                Ready::readable() | Ready::writable(),
-                PollOpt::edge(),
+                Interest::READABLE | Interest::WRITABLE,
             )
             .unwrap();
 

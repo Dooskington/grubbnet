@@ -6,7 +6,7 @@ use crate::{
 };
 use mio::{
     net::{TcpListener, TcpStream},
-    Events, Poll, PollOpt, Ready, Token,
+    Events, Interest, Poll, Token,
 };
 use std::{
     collections::{HashMap, VecDeque},
@@ -46,12 +46,6 @@ impl Connection {
             outgoing_packets: VecDeque::new(),
         }
     }
-
-    /*
-    pub fn id(&self) -> u64 {
-        self.token.0 as u64
-    }
-    */
 }
 
 pub struct Server {
@@ -68,16 +62,12 @@ impl Server {
     /// Begin hosting a TCP server.
     pub fn host(ip: &str, port: u16, connection_limit: usize) -> Result<Server> {
         let address = format!("{}:{}", ip, port).parse().unwrap();
-        let tcp_listener = TcpListener::bind(&address)?;
+        let mut tcp_listener = TcpListener::bind(address)?;
 
         // Register to read events
         let poll = Poll::new().unwrap();
-        poll.register(
-            &tcp_listener,
-            LOCAL_TOKEN,
-            Ready::readable(),
-            PollOpt::edge(),
-        )?;
+        poll.registry()
+            .register(&mut tcp_listener, LOCAL_TOKEN, Interest::READABLE)?;
 
         Ok(Server {
             tcp_listener,
@@ -180,7 +170,7 @@ impl Server {
             match event.token() {
                 // Local socket is ready to accept
                 LOCAL_TOKEN => match self.tcp_listener.accept() {
-                    Ok((socket, addr)) => {
+                    Ok((mut socket, addr)) => {
                         if self.num_connections() >= self.connection_limit() {
                             println!("Rejecting connection from {}, server is full!", addr.ip());
 
@@ -193,11 +183,10 @@ impl Server {
                         let token = Token(self.token_counter);
 
                         // Register the new socket to receive events
-                        self.poll.register(
-                            &socket,
+                        self.poll.registry().register(
+                            &mut socket,
                             token,
-                            Ready::readable() | Ready::writable(),
-                            PollOpt::edge(),
+                            Interest::READABLE | Interest::WRITABLE,
                         ).unwrap_or_else(|e| panic!("Failed to register poll for new connection (Token {}, Address {}). {}", token.0, addr, e));
 
                         // Insert the new connection
@@ -220,7 +209,7 @@ impl Server {
                         });
 
                     // Handle reading
-                    if event.readiness().is_readable() {
+                    if event.is_readable() {
                         // Loop and read bytes into this connections buffer, until there are no more incoming bytes
                         let buffer = &mut conn.buffer.data[conn.buffer.offset..];
                         loop {
@@ -269,7 +258,7 @@ impl Server {
                     }
 
                     // Handle writing
-                    if event.readiness().is_writable() {
+                    if event.is_writable() {
                         while let Some(packet) = conn.outgoing_packets.pop_front() {
                             let data = match serialize_packet(packet) {
                                 Ok(d) => d,
@@ -298,11 +287,11 @@ impl Server {
                     // We're done processing events for this connection for this tick.
                     // Reregister for next tick.
                     self.poll
+                        .registry()
                         .reregister(
-                            &conn.socket,
+                            &mut conn.socket,
                             conn.token,
-                            Ready::readable() | Ready::writable(),
-                            PollOpt::edge(),
+                            Interest::READABLE | Interest::WRITABLE,
                         )
                         .unwrap_or_else(|e| {
                             panic!(
