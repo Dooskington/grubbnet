@@ -169,33 +169,42 @@ impl Server {
         for event in self.events.iter() {
             match event.token() {
                 // Local socket is ready to accept
-                LOCAL_TOKEN => match self.tcp_listener.accept() {
-                    Ok((mut socket, addr)) => {
-                        if self.num_connections() >= self.connection_limit() {
-                            println!("Rejecting connection from {}, server is full!", addr.ip());
+                LOCAL_TOKEN => loop {
+                    let (mut socket, addr) = match self.tcp_listener.accept() {
+                        Ok((socket, addr)) => (socket, addr),
+                        Err(e) => {
+                            if e.kind() == std::io::ErrorKind::WouldBlock {
+                                break;
+                            }
 
-                            net_events.push(ServerEvent::ConnectionRejected(addr));
-                            continue;
+                            println!("{}", e);
+                            break;
                         }
+                    };
 
-                        // Increment our token counter, then create a new token for this connection
-                        self.token_counter += 1;
-                        let token = Token(self.token_counter);
+                    if self.num_connections() >= self.connection_limit() {
+                        println!("Rejecting connection from {}, server is full!", addr.ip());
 
-                        // Register the new socket to receive events
-                        self.poll.registry().register(
-                            &mut socket,
-                            token,
-                            Interest::READABLE | Interest::WRITABLE,
-                        ).unwrap_or_else(|e| panic!("Failed to register poll for new connection (Token {}, Address {}). {}", token.0, addr, e));
-
-                        // Insert the new connection
-                        self.connections
-                            .insert(token, Connection::new(token, socket));
-
-                        net_events.push(ServerEvent::ClientConnected(token, addr));
+                        net_events.push(ServerEvent::ConnectionRejected(addr));
+                        continue;
                     }
-                    Err(e) => println!("{}", e),
+
+                    // Increment our token counter, then create a new token for this connection
+                    self.token_counter += 1;
+                    let token = Token(self.token_counter);
+
+                    // Register the new socket to receive events
+                    self.poll.registry().register(
+                        &mut socket,
+                        token,
+                        Interest::READABLE | Interest::WRITABLE,
+                    ).unwrap_or_else(|e| panic!("Failed to register poll for new connection (Token {}, Address {}). {}", token.0, addr, e));
+
+                    // Insert the new connection
+                    self.connections
+                        .insert(token, Connection::new(token, socket));
+
+                    net_events.push(ServerEvent::ClientConnected(token, addr));
                 },
                 // Connection socket is ready to read/write
                 token => {
