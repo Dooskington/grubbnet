@@ -19,15 +19,17 @@ impl NetworkBuffer {
 
     /// Deletes `count` bytes from the front of the buffer, then shifts the rest of the buffer back in place at index 0.
     pub fn drain(&mut self, count: usize) {
+        if count > self.offset {
+            panic!("Attempted to drain more bytes ({}) than present in buffer ({})", count, self.offset);
+        }
         unsafe {
             use std::ptr;
             ptr::copy(
-                self.data.as_ptr().offset(count as isize),
+                self.data.as_ptr().add(count),
                 self.data.as_mut_ptr(),
                 self.offset - count,
             );
         }
-
         self.offset -= count;
     }
 
