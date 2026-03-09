@@ -8,8 +8,8 @@ Grubbnet
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://docs.rs/grubbnet/badge.svg)](https://docs.rs/grubbnet)
 
-Grubbnet is a lightweight TCP client/server library, meant for writing networked applications and games. 
-It's a combination of all the TCP boilerplate I usually find myself writing when I work on a networked project. 
+Grubbnet is a lightweight TCP client/server library, meant for writing networked applications and games.
+It's a combination of all the TCP boilerplate I usually find myself writing when I work on a networked project.
 Initially, it was an internal crate for a [multiplayer RPG.](https://dooskington.com/dev-log/0)
 
 Grubbnet abstracts socket code, keeps track of connections, and delivers everything back to the developer in a
@@ -78,7 +78,7 @@ fn main() -> Result<()> {
         // Process incoming packets
         for (token, packet) in server.drain_incoming_packets().iter() {
             match packet.header.id {
-                0x00 => { 
+                0x00 => {
                     // Deserialize and handle, however you like
                 }
                 _ => eprintln!("Unhandled packet! id: {}", packet.header.id)
@@ -109,6 +109,8 @@ Enabling it will give you access to the `grubbnet::crypto` module, which is a ti
 stuff for decrypting bytes with a private key, and hashing/verifying strings. This is useful for writing packets with sensitive data.
 I need to write more about how this is used, but for now just know that if you enable this you are required to have the `openssl` development
 libraries installed on your machine.
+
+RSA decryption uses OAEP padding with SHA-256 (for both the OAEP digest and the MGF1 digest). The encrypting side must also use OAEP with SHA-256 for decryption to succeed.
 
 ```rust
 // Decrypt some bytes
