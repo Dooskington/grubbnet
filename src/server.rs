@@ -34,6 +34,7 @@ pub struct Connection {
     is_disconnected: bool,
     buffer: NetworkBuffer,
     outgoing_packets: VecDeque<Box<dyn PacketBody>>,
+    outgoing_buffer: Vec<u8>,
 }
 
 impl Connection {
@@ -44,6 +45,7 @@ impl Connection {
             is_disconnected: false,
             buffer: NetworkBuffer::new(),
             outgoing_packets: VecDeque::new(),
+            outgoing_buffer: Vec::new(),
         }
     }
 }
@@ -189,6 +191,15 @@ impl Server {
                         continue;
                     }
 
+                    // Disable Nagle's algorithm so small, latency-sensitive packets are
+                    // sent immediately instead of being buffered by the OS.
+                    if let Err(e) = socket.set_nodelay(true) {
+                        eprintln!(
+                            "Failed to set TCP_NODELAY on connection from {}! {}",
+                            addr, e
+                        );
+                    }
+
                     // Increment our token counter, then create a new token for this connection
                     self.token_counter += 1;
                     let token = Token(self.token_counter);
@@ -268,6 +279,8 @@ impl Server {
 
                     // Handle writing
                     if event.is_writable() {
+                        // Serialize any newly queued packets onto the end of the outgoing
+                        // byte buffer, preserving send order.
                         while let Some(packet) = conn.outgoing_packets.pop_front() {
                             let data = match serialize_packet(packet) {
                                 Ok(d) => d,
@@ -277,9 +290,17 @@ impl Server {
                                 }
                             };
 
-                            match send_bytes(&mut conn.socket, &data) {
+                            conn.outgoing_buffer.extend_from_slice(&data);
+                            net_events.push(ServerEvent::SentPacket(token, data.len()));
+                        }
+
+                        // Flush as much of the outgoing buffer as the socket will accept.
+                        // Any bytes left unsent (partial write or WouldBlock) are kept and
+                        // retried on the next writable event.
+                        if !conn.outgoing_buffer.is_empty() {
+                            match send_bytes(&mut conn.socket, &conn.outgoing_buffer) {
                                 Ok(sent_bytes) => {
-                                    net_events.push(ServerEvent::SentPacket(token, sent_bytes));
+                                    conn.outgoing_buffer.drain(..sent_bytes);
                                 }
                                 Err(e) => {
                                     eprintln!(
@@ -287,7 +308,6 @@ impl Server {
                                         conn.token.0, e
                                     );
                                     conn.is_disconnected = true;
-                                    break;
                                 }
                             }
                         }
