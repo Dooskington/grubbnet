@@ -26,6 +26,7 @@ pub struct Client {
     buffer: NetworkBuffer,
     incoming_packets: VecDeque<Packet>,
     outgoing_packets: VecDeque<Box<dyn PacketBody>>,
+    outgoing_buffer: Vec<u8>,
     is_disconnected: bool,
 }
 
@@ -33,6 +34,10 @@ impl Client {
     pub fn connect(ip: &str, port: u16) -> Result<Client> {
         let address = format!("{}:{}", ip, port).parse().unwrap();
         let mut tcp_stream = TcpStream::connect(address)?;
+
+        // Disable Nagle's algorithm so small, latency-sensitive packets are sent
+        // immediately instead of being buffered by the OS.
+        tcp_stream.set_nodelay(true)?;
 
         // Register for reading/writing
         let poll = Poll::new().unwrap();
@@ -49,6 +54,7 @@ impl Client {
             buffer: NetworkBuffer::new(),
             incoming_packets: VecDeque::new(),
             outgoing_packets: VecDeque::new(),
+            outgoing_buffer: Vec::new(),
             is_disconnected: false,
         })
     }
@@ -138,6 +144,8 @@ impl Client {
 
                     // Handle writing
                     if event.is_writable() {
+                        // Serialize any newly queued packets onto the end of the outgoing
+                        // byte buffer, preserving send order.
                         while let Some(packet) = self.outgoing_packets.pop_front() {
                             let data = match serialize_packet(packet) {
                                 Ok(d) => d,
@@ -147,16 +155,23 @@ impl Client {
                                 }
                             };
 
-                            match send_bytes(&mut self.tcp_stream, &data) {
+                            self.outgoing_buffer.extend_from_slice(&data);
+                            net_events.push(ClientEvent::SentPacket(data.len()));
+                        }
+
+                        // Flush as much of the outgoing buffer as the socket will accept.
+                        // Any bytes left unsent (partial write or WouldBlock) are kept and
+                        // retried on the next writable event.
+                        if !self.outgoing_buffer.is_empty() {
+                            match send_bytes(&mut self.tcp_stream, &self.outgoing_buffer) {
                                 Ok(sent_bytes) => {
-                                    net_events.push(ClientEvent::SentPacket(sent_bytes));
+                                    self.outgoing_buffer.drain(..sent_bytes);
                                 }
                                 Err(e) => {
                                     net_events.push(ClientEvent::Disconnected);
 
                                     eprintln!("Unexpected error when sending bytes! {}", e);
                                     self.is_disconnected = true;
-                                    break;
                                 }
                             }
                         }
