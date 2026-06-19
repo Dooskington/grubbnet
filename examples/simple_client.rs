@@ -2,7 +2,7 @@ use grubbnet::{packet::PacketBody, Client, ClientEvent, Result};
 
 /// 0x00 - Ping Packet
 /// Client
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(wincode::SchemaWrite, wincode::SchemaRead, Clone)]
 pub struct PingPacket {
     pub msg: String,
 }
@@ -13,10 +13,7 @@ impl PacketBody for PingPacket {
     }
 
     fn serialize(&self) -> Result<Vec<u8>> {
-        match bincode::config().big_endian().serialize::<Self>(&self) {
-            Ok(d) => Ok(d),
-            Err(_e) => Err(grubbnet::Error::InvalidData),
-        }
+        wincode::serialize(self).map_err(|_e| grubbnet::Error::InvalidData)
     }
 
     fn deserialize(_data: &[u8]) -> Result<Self> {
@@ -30,7 +27,7 @@ impl PacketBody for PingPacket {
 
 /// 0x00 - Pong Packet
 /// Server
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(wincode::SchemaWrite, wincode::SchemaRead, Clone)]
 pub struct PongPacket {
     pub msg: String,
 }
@@ -45,10 +42,7 @@ impl PacketBody for PongPacket {
     }
 
     fn deserialize(data: &[u8]) -> Result<Self> {
-        match bincode::config().big_endian().deserialize::<Self>(data) {
-            Ok(p) => Ok(p),
-            Err(_e) => Err(grubbnet::Error::InvalidData),
-        }
+        wincode::deserialize(data).map_err(|_e| grubbnet::Error::InvalidData)
     }
 
     fn id(&self) -> u8 {
