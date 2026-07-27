@@ -1,11 +1,14 @@
 use crate::{
     buffer::NetworkBuffer,
     error::Result,
-    packet::{deserialize_packet_header, serialize_packet, Packet, PacketBody, PACKET_HEADER_SIZE},
-    send_bytes,
+    packet::{
+        parse_packet_header, serialize_packet, HeaderParse, Packet, PacketBody,
+        MAX_PACKET_BODY_SIZE, PACKET_HEADER_SIZE,
+    },
+    read_into_buffer, send_bytes, ReadOutcome,
 };
 use mio::{net::TcpStream, Events, Interest, Poll, Token};
-use std::{collections::VecDeque, io::Read};
+use std::collections::VecDeque;
 
 const LOCAL_TOKEN: Token = Token(0);
 const EVENTS_CAPACITY: usize = 4096;
@@ -90,55 +93,86 @@ impl Client {
                 LOCAL_TOKEN => {
                     // Handle reading
                     if event.is_readable() {
-                        loop {
-                            // Read until there are no more incoming bytes
-                            match self
-                                .tcp_stream
-                                .read(&mut self.buffer.data[self.buffer.offset..])
-                            {
-                                Ok(0) => {
-                                    // "Read" 0 bytes, which means we have been disconnected
-                                    net_events.push(ClientEvent::Disconnected);
-                                    self.is_disconnected = true;
-                                    break;
-                                }
-                                Ok(read_bytes) => {
-                                    // Read some bytes
-                                    self.buffer.offset += read_bytes;
-                                }
-                                Err(e) => {
-                                    // Socket is not ready anymore, stop reading
-                                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                                        break;
-                                    } else {
-                                        net_events.push(ClientEvent::Disconnected);
+                        // Read until the socket runs dry or the buffer fills up. The
+                        // destination slice is recomputed on every iteration inside the helper.
+                        match read_into_buffer(&mut self.tcp_stream, &mut self.buffer) {
+                            // Socket ran dry, or the buffer filled up. Either way, process
+                            // whatever arrived. A full buffer is deliberately not treated as a
+                            // disconnect here; that check happens after packets are drained.
+                            ReadOutcome::WouldBlock | ReadOutcome::BufferFull => {}
+                            ReadOutcome::Closed => {
+                                // "Read" 0 bytes, which means we have been disconnected
+                                net_events.push(ClientEvent::Disconnected);
+                                self.is_disconnected = true;
+                            }
+                            ReadOutcome::Error(e) => {
+                                net_events.push(ClientEvent::Disconnected);
 
-                                        eprintln!("Unexpected error when reading bytes! {}", e);
-                                        self.is_disconnected = true;
-                                        break;
-                                    }
-                                }
+                                eprintln!("Unexpected error when reading bytes! {}", e);
+                                self.is_disconnected = true;
                             }
                         }
 
                         // Process incoming bytes into packets
-                        while let Ok(header) = deserialize_packet_header(&mut self.buffer) {
+                        loop {
+                            let header = match parse_packet_header(&self.buffer) {
+                                HeaderParse::Parsed(header) => header,
+                                // The rest of the header hasn't arrived yet. Wait for it.
+                                HeaderParse::Incomplete => break,
+                                HeaderParse::Invalid => {
+                                    // The header declares a body we will never accept, so the
+                                    // stream can never resynchronize.
+                                    eprintln!(
+                                        "Server sent a packet header declaring a body larger than the max body size ({} bytes)! Disconnecting.",
+                                        MAX_PACKET_BODY_SIZE
+                                    );
+
+                                    net_events.push(ClientEvent::Disconnected);
+                                    self.is_disconnected = true;
+                                    break;
+                                }
+                            };
+
                             // Now make sure we have enough bytes for at the rest of this packet
                             let packet_size = PACKET_HEADER_SIZE + (header.size as usize);
-                            if self.buffer.offset < packet_size {
+                            if self.buffer.len() < packet_size {
                                 break;
                             }
 
                             // Drain the packet bytes from the front of the buffer
-                            let bytes: &[u8] = &self.buffer.data[PACKET_HEADER_SIZE..packet_size];
-                            let body = bytes.to_vec();
-                            self.buffer.drain(packet_size);
+                            let body =
+                                self.buffer.filled()[PACKET_HEADER_SIZE..packet_size].to_vec();
+                            if self.buffer.try_drain(packet_size).is_err() {
+                                // Unreachable: `packet_size <= buffer.len()` was just checked.
+                                // Disconnect rather than spin on the same bytes.
+                                eprintln!(
+                                    "Failed to drain {} bytes from the incoming buffer! Disconnecting.",
+                                    packet_size
+                                );
+
+                                net_events.push(ClientEvent::Disconnected);
+                                self.is_disconnected = true;
+                                break;
+                            }
 
                             let packet = Packet { header, body };
 
                             self.incoming_packets.push_back(packet);
 
                             net_events.push(ClientEvent::ReceivedPacket(packet_size));
+                        }
+
+                        // MAX_BUFFER_SIZE is roughly twice MAX_PACKET_SIZE, so a peer speaking
+                        // the protocol can never leave the buffer completely full with no
+                        // complete packet in it. If it is still full here there is no room to
+                        // read more and nothing to process, so it would spin forever.
+                        if !self.is_disconnected && self.buffer.is_full() {
+                            eprintln!(
+                                "The incoming buffer is full but contains no complete packet! Disconnecting."
+                            );
+
+                            net_events.push(ClientEvent::Disconnected);
+                            self.is_disconnected = true;
                         }
                     }
 
@@ -182,15 +216,18 @@ impl Client {
         }
 
         // We're done processing events for this tick.
-        // Reregister for next tick.
-        self.poll
-            .registry()
-            .reregister(
-                &mut self.tcp_stream,
-                LOCAL_TOKEN,
-                Interest::READABLE | Interest::WRITABLE,
-            )
-            .unwrap();
+        // Reregister for next tick, unless we've disconnected: reregistering a socket we're
+        // about to drop can fail on a broken fd, and that failure is a panic.
+        if !self.is_disconnected {
+            self.poll
+                .registry()
+                .reregister(
+                    &mut self.tcp_stream,
+                    LOCAL_TOKEN,
+                    Interest::READABLE | Interest::WRITABLE,
+                )
+                .unwrap();
+        }
 
         net_events
     }

@@ -1,8 +1,11 @@
 use crate::{
-    buffer::NetworkBuffer,
+    buffer::{NetworkBuffer, MAX_BUFFER_SIZE},
     error::{Error, Result},
-    packet::{deserialize_packet_header, serialize_packet, Packet, PacketBody, PACKET_HEADER_SIZE},
-    send_bytes, PacketRecipient,
+    packet::{
+        parse_packet_header, serialize_packet, HeaderParse, Packet, PacketBody,
+        MAX_PACKET_BODY_SIZE, PACKET_HEADER_SIZE,
+    },
+    read_into_buffer, send_bytes, PacketRecipient, ReadOutcome,
 };
 use mio::{
     net::{TcpListener, TcpStream},
@@ -10,7 +13,6 @@ use mio::{
 };
 use std::{
     collections::{HashMap, VecDeque},
-    io::Read,
     net::SocketAddr,
 };
 
@@ -90,6 +92,13 @@ impl Server {
     /// Get the maximum number of connections allowed.
     pub fn connection_limit(&self) -> usize {
         self.connection_limit
+    }
+
+    /// The address this server is listening on.
+    ///
+    /// Useful when hosting on port 0 and letting the OS pick a free port.
+    pub fn local_addr(&self) -> Result<SocketAddr> {
+        Ok(self.tcp_listener.local_addr()?)
     }
 
     /// Drain any incoming packets and return them.
@@ -230,50 +239,117 @@ impl Server {
 
                     // Handle reading
                     if event.is_readable() {
-                        // Loop and read bytes into this connections buffer, until there are no more incoming bytes
-                        let buffer = &mut conn.buffer.data[conn.buffer.offset..];
-                        loop {
-                            match conn.socket.read(buffer) {
-                                Ok(0) => {
-                                    // "Read" 0 bytes, which means the socket has closed
-                                    conn.is_disconnected = true;
-                                    break;
-                                }
-                                Ok(read_bytes) => {
-                                    // Read some bytes
-                                    conn.buffer.offset += read_bytes;
-                                }
-                                Err(e) => {
-                                    // Socket is not ready anymore, stop reading
-                                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                                        break;
-                                    } else {
-                                        eprintln!("Unexpected error when reading bytes from connection {}! {}", conn.token.0, e);
-                                        conn.is_disconnected = true;
-                                        break;
-                                    }
-                                }
+                        // Read bytes into this connection's buffer until the socket runs dry
+                        // or the buffer fills up. The destination slice is recomputed on every
+                        // iteration inside the helper: hoisting it out of the loop is what let
+                        // an unauthenticated 64 KB burst drive `offset` to 65536 on a
+                        // 16384-byte array in 0.2.2.
+                        //
+                        // At most one bufferful is taken per readable event, so a peer sending
+                        // a firehose of bytes cannot starve the other connections. The
+                        // reregister at the end of this tick re-arms readiness for the rest.
+                        let read_outcome = read_into_buffer(&mut conn.socket, &mut conn.buffer);
+
+                        // Hard invariant: the read path must never leave the buffer offset past
+                        // the end of the backing array. 0.2.2 violated this and then fed the
+                        // resulting out-of-range length straight into an unsafe pointer copy.
+                        debug_assert!(
+                            conn.buffer.offset <= MAX_BUFFER_SIZE,
+                            "Connection {} buffer offset ({}) escaped the backing array ({} bytes)",
+                            conn.token.0,
+                            conn.buffer.offset,
+                            MAX_BUFFER_SIZE
+                        );
+
+                        if conn.buffer.offset > MAX_BUFFER_SIZE {
+                            eprintln!(
+                                "Connection {} buffer offset ({}) exceeded the maximum buffer size ({} bytes)! Dropping connection.",
+                                conn.token.0, conn.buffer.offset, MAX_BUFFER_SIZE
+                            );
+
+                            conn.buffer.offset = MAX_BUFFER_SIZE;
+                            conn.is_disconnected = true;
+                        }
+
+                        match read_outcome {
+                            // Socket ran dry, or the buffer filled up. Either way, process
+                            // whatever arrived. A full buffer is deliberately not treated as a
+                            // disconnect here; that check happens after packets are drained.
+                            ReadOutcome::WouldBlock | ReadOutcome::BufferFull => {}
+                            ReadOutcome::Closed => {
+                                // "Read" 0 bytes, which means the socket has closed
+                                conn.is_disconnected = true;
+                            }
+                            ReadOutcome::Error(e) => {
+                                eprintln!(
+                                    "Unexpected error when reading bytes from connection {}! {}",
+                                    conn.token.0, e
+                                );
+
+                                conn.is_disconnected = true;
                             }
                         }
 
                         // Process incoming bytes into packets
-                        while let Ok(header) = deserialize_packet_header(&mut conn.buffer) {
+                        loop {
+                            let header = match parse_packet_header(&conn.buffer) {
+                                HeaderParse::Parsed(header) => header,
+                                // The rest of the header hasn't arrived yet. Wait for it.
+                                HeaderParse::Incomplete => break,
+                                HeaderParse::Invalid => {
+                                    // The header declares a body we will never accept, so the
+                                    // stream can never resynchronize. Kick the client so we
+                                    // have some basic protection from being overloaded.
+                                    eprintln!(
+                                        "Connection {} sent a packet header declaring a body larger than the max body size ({} bytes)! Dropping connection.",
+                                        conn.token.0, MAX_PACKET_BODY_SIZE
+                                    );
+
+                                    conn.is_disconnected = true;
+                                    break;
+                                }
+                            };
+
                             // Now make sure we have enough bytes for at the rest of this packet
                             let packet_size = PACKET_HEADER_SIZE + (header.size as usize);
-                            if conn.buffer.offset < packet_size {
+                            if conn.buffer.len() < packet_size {
                                 break;
                             }
 
                             // Drain the packet bytes from the front of the buffer
-                            let bytes: &[u8] = &conn.buffer.data[PACKET_HEADER_SIZE..packet_size];
-                            let body = bytes.to_vec();
-                            conn.buffer.drain(packet_size);
+                            let body =
+                                conn.buffer.filled()[PACKET_HEADER_SIZE..packet_size].to_vec();
+                            if conn.buffer.try_drain(packet_size).is_err() {
+                                // Unreachable: `packet_size <= buffer.len()` was just checked.
+                                // Drop the connection rather than spin on the same bytes.
+                                eprintln!(
+                                    "Failed to drain {} bytes from connection {}'s buffer! Dropping connection.",
+                                    packet_size, conn.token.0
+                                );
+
+                                conn.is_disconnected = true;
+                                break;
+                            }
 
                             let packet = Packet { header, body };
 
                             self.incoming_packets.push_back((token, packet));
 
                             net_events.push(ServerEvent::ReceivedPacket(conn.token, packet_size));
+                        }
+
+                        // MAX_BUFFER_SIZE is roughly twice MAX_PACKET_SIZE, so a peer speaking
+                        // the protocol can never leave the buffer completely full with no
+                        // complete packet in it. If it is still full here, the peer is either
+                        // desynced or deliberately wedging the connection: there is no room to
+                        // read more and nothing to process, so it would spin forever.
+                        if !conn.is_disconnected && conn.buffer.is_full() {
+                            eprintln!(
+                                "Connection {}'s buffer is full but contains no complete packet! Dropping connection.",
+                                conn.token.0
+                            );
+
+                            conn.is_disconnected = true;
                         }
                     }
 
@@ -314,20 +390,35 @@ impl Server {
                     }
 
                     // We're done processing events for this connection for this tick.
-                    // Reregister for next tick.
-                    self.poll
-                        .registry()
-                        .reregister(
-                            &mut conn.socket,
-                            conn.token,
-                            Interest::READABLE | Interest::WRITABLE,
-                        )
-                        .unwrap_or_else(|e| {
-                            panic!(
-                                "Failed to reregister poll for connection (Token {}). {}",
-                                token.0, e
+                    // Reregister for next tick, unless it's on its way out: reregistering a
+                    // socket we're about to drop can fail on a broken fd, and that failure is
+                    // a panic. A misbehaving peer must not be able to take the server down.
+                    //
+                    // Skipping it here is safe because `is_disconnected` is not touched again
+                    // before the `retain` at the end of this tick removes exactly these
+                    // connections, so a connection that survives the tick is always re-armed.
+                    //
+                    // Note that in the `BufferFull` case above we stop reading before the
+                    // socket returns `WouldBlock`, and mio only guarantees another readiness
+                    // event after a full drain. This reregister is what re-arms readiness for
+                    // the leftover bytes: it maps to `EPOLL_CTL_MOD` on epoll and to a
+                    // re-issued AFD poll on Windows IOCP, both of which report a socket that
+                    // already has data pending.
+                    if !conn.is_disconnected {
+                        self.poll
+                            .registry()
+                            .reregister(
+                                &mut conn.socket,
+                                conn.token,
+                                Interest::READABLE | Interest::WRITABLE,
                             )
-                        });
+                            .unwrap_or_else(|e| {
+                                panic!(
+                                    "Failed to reregister poll for connection (Token {}). {}",
+                                    token.0, e
+                                )
+                            });
+                    }
                 }
             }
         }

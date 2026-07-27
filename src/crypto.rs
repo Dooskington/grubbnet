@@ -17,13 +17,21 @@ pub use openssl::{
 pub fn decrypt(rsa: &Rsa<Private>, bytes: &[u8]) -> Result<(Vec<u8>, usize)> {
     let pkey = PKey::from_rsa(rsa.clone()).map_err(Error::OpenSsl)?;
     let mut decrypter = Decrypter::new(&pkey).map_err(Error::OpenSsl)?;
-    decrypter.set_rsa_padding(Padding::PKCS1_OAEP).map_err(Error::OpenSsl)?;
-    decrypter.set_rsa_oaep_md(MessageDigest::sha256()).map_err(Error::OpenSsl)?;
-    decrypter.set_rsa_mgf1_md(MessageDigest::sha256()).map_err(Error::OpenSsl)?;
+    decrypter
+        .set_rsa_padding(Padding::PKCS1_OAEP)
+        .map_err(Error::OpenSsl)?;
+    decrypter
+        .set_rsa_oaep_md(MessageDigest::sha256())
+        .map_err(Error::OpenSsl)?;
+    decrypter
+        .set_rsa_mgf1_md(MessageDigest::sha256())
+        .map_err(Error::OpenSsl)?;
 
     let buffer_len = decrypter.decrypt_len(bytes).map_err(Error::OpenSsl)?;
     let mut decrypted_bytes = vec![0u8; buffer_len];
-    let decrypted_len = decrypter.decrypt(bytes, &mut decrypted_bytes).map_err(Error::OpenSsl)?;
+    let decrypted_len = decrypter
+        .decrypt(bytes, &mut decrypted_bytes)
+        .map_err(Error::OpenSsl)?;
     Ok((decrypted_bytes, decrypted_len))
 }
 

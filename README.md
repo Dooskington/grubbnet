@@ -20,11 +20,42 @@ Instead of dealing with raw bytes, Grubbnet operates based on packets that the d
 
 Packet headers are 3 bytes (2 bytes for a 16 bit body size, and 1 byte for an 8 bit packet id). In the future, I'd like to allow developers to also define their own header for more flexibility. The header allows Grubbnet to recognize when it's being sent a packet, what the packet type is, and how many bytes it needs to wait for before it has all the data required to reconstruct the packet. After this happens, the packet id and (still serialized) body are handed back to the developer through the incoming packet queue, and they can do as they please with it.
 
+### Limits and framing
+Incoming bytes are accumulated in a fixed 16 KiB buffer (`MAX_BUFFER_SIZE`) per connection until
+a complete packet can be pulled off the front of it. A packet body may be up to 8191 bytes
+(`MAX_PACKET_BODY_SIZE` is 8192, and the check is exclusive), so the buffer always has roughly
+twice the headroom of the largest legal packet.
+
+Packets are framed, not message-oriented, so none of this is affected by how a peer chooses to
+split its writes. A packet spread across several `write` calls is reassembled, and several
+packets delivered in a single `write` burst all arrive intact and in order, however the bytes
+happen to land in TCP segments.
+
+At most one bufferful is read per connection per readable event, so a peer sending a firehose of
+bytes cannot starve the other connections. Anything left over is picked up on the next tick.
+
+### Protocol violations
+Grubbnet drops a connection, rather than panicking or spinning, when a peer does something the
+protocol cannot recover from:
+
+* a header declaring a body larger than `MAX_PACKET_BODY_SIZE`, which can never be satisfied
+* a completely full buffer that still contains no complete packet, which can never make progress
+
+Both are reported through the ordinary `ServerEvent::ClientDisconnected` (or
+`ClientEvent::Disconnected`) path, so there is no new event variant to handle. A merely
+*incomplete* packet is not a violation: the connection is left alone until the rest arrives.
+
+`grubbnet::buffer::NetworkBuffer` exposes its `data` and `offset` fields publicly for
+convenience. `offset` is never trusted as a length: every method clamps it to `MAX_BUFFER_SIZE`
+before deriving an index from it, so no value of `offset` can cause an out-of-bounds access.
+Prefer `try_drain` over `drain` if you use the buffer directly; it reports an error instead of
+panicking.
+
 ## Usage
  Add this to your `Cargo.toml`:
  ```toml
  [dependencies]
- grubbnet = "0.1"
+ grubbnet = "0.2"
  ```
 
 Hosting a barebones server that sends a simple packet:
