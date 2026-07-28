@@ -1,8 +1,9 @@
 [package]
 name = "grubbnet"
-version = "0.2.3"
+version = "0.3.0"
 authors = ["Declan Hopkins <ratwizarddev@gmail.com>"]
 edition = "2018"
+rust-version = "1.85"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/dooskington/grubbnet"
@@ -14,14 +15,14 @@ name = "grubbnet"
 crate-type = ["rlib"]
 
 [dependencies]
-mio = { version = "0.8", features = ["os-poll", "net"] }
+mio = { version = "1.0", features = ["os-poll", "net"] }
 byteorder = "1.5.0"
-derive_more = "0.99.17"
-openssl = { version = "0.10.75", optional = true }
-bcrypt = { version = "0.19", optional = true }
+derive_more = { version = "2.0", features = ["display", "from"] }
+openssl = { version = "0.10.81", optional = true }
+bcrypt = { version = "0.19.3", optional = true }
 
 [dev-dependencies]
-wincode = { version = "0.5.5", features = ["derive"] }
+wincode = { version = "0.6.0", features = ["derive"] }
 
 [features]
 crypto = ["openssl", "bcrypt"]

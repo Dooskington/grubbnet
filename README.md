@@ -55,12 +55,14 @@ panicking.
  Add this to your `Cargo.toml`:
  ```toml
  [dependencies]
- grubbnet = "0.2"
+ grubbnet = "0.3"
  ```
+
+Grubbnet requires Rust 1.85 or newer.
 
 Hosting a barebones server that sends a simple packet:
 ```rust
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(wincode::SchemaWrite, wincode::SchemaRead, Clone)]
 pub struct MessagePacket { pub msg: String }
 
 impl PacketBody for MessagePacket {
@@ -69,16 +71,13 @@ impl PacketBody for MessagePacket {
         Box::new((*self).clone())
     }
 
-    fn serialize(&self) -> Vec<u8> {
+    fn serialize(&self) -> Result<Vec<u8>> {
         // Define your own serialization here.
-        // I like to use serde & bincode.
-        bincode::config()
-            .big_endian()
-            .serialize::<Self>(&self)
-            .unwrap()
+        // The examples use wincode, but anything that produces bytes will do.
+        wincode::serialize(self).map_err(|_e| grubbnet::Error::InvalidData)
     }
 
-    fn deserialize(_data: &[u8]) -> Self {
+    fn deserialize(_data: &[u8]) -> Result<Self> {
         panic!("Attempted to deserialize a server-only packet!");
     }
 
