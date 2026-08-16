@@ -45,9 +45,19 @@ pub struct Packet {
     pub body: Vec<u8>,
 }
 
+/// Serializes `body` into a complete packet, header included.
+///
+/// Returns [`Error::PacketTooLarge`] if the body reaches [`MAX_PACKET_BODY_SIZE`], mirroring
+/// the check [`parse_packet_header`] applies on the way in. Without it a body over 65535 wraps
+/// the 16 bit length field, and the peer reads the middle of the body as the next header and
+/// desynchronises for the rest of the connection.
 pub fn serialize_packet(body: Box<dyn PacketBody>) -> Result<Vec<u8>, Error> {
     // Serialize the packet body first so we know the size
     let mut body_data: Vec<u8> = body.serialize()?;
+
+    if body_data.len() >= MAX_PACKET_BODY_SIZE {
+        return Err(Error::PacketTooLarge(body_data.len(), MAX_PACKET_BODY_SIZE));
+    }
 
     // Create payload and write header (body size and id)
     let mut data: Vec<u8> = Vec::new();
@@ -131,6 +141,30 @@ pub fn deserialize_packet_header(buffer: &mut NetworkBuffer) -> Result<PacketHea
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Body(Vec<u8>);
+
+    impl PacketBody for Body {
+        fn box_clone(&self) -> Box<dyn PacketBody> {
+            Box::new(Body(self.0.clone()))
+        }
+
+        fn serialize(&self) -> Result<Vec<u8>, Error> {
+            Ok(self.0.clone())
+        }
+
+        fn deserialize(data: &[u8]) -> Result<Self, Error> {
+            Ok(Body(data.to_vec()))
+        }
+
+        fn id(&self) -> u8 {
+            0x2A
+        }
+    }
+
+    fn serialize_body_of(size: usize) -> Result<Vec<u8>, Error> {
+        serialize_packet(Box::new(Body(vec![0u8; size])))
+    }
 
     fn buffer_with(bytes: &[u8]) -> NetworkBuffer {
         let mut buffer = NetworkBuffer::new();
@@ -251,26 +285,6 @@ mod tests {
 
     #[test]
     fn a_serialized_packet_round_trips_through_the_header_parser() {
-        struct Body(Vec<u8>);
-
-        impl PacketBody for Body {
-            fn box_clone(&self) -> Box<dyn PacketBody> {
-                Box::new(Body(self.0.clone()))
-            }
-
-            fn serialize(&self) -> Result<Vec<u8>, Error> {
-                Ok(self.0.clone())
-            }
-
-            fn deserialize(data: &[u8]) -> Result<Self, Error> {
-                Ok(Body(data.to_vec()))
-            }
-
-            fn id(&self) -> u8 {
-                0x2A
-            }
-        }
-
         let data = serialize_packet(Box::new(Body(vec![1, 2, 3, 4, 5]))).unwrap();
         assert_eq!(data.len(), PACKET_HEADER_SIZE + 5);
 
@@ -282,5 +296,49 @@ mod tests {
             }
             other => panic!("expected a parsed header, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn the_largest_legal_body_is_serialized() {
+        let data = serialize_body_of(MAX_PACKET_BODY_SIZE - 1).expect("body is within the limit");
+
+        assert_eq!(data.len(), MAX_PACKET_SIZE - 1);
+
+        let buffer = buffer_with(&data);
+        match parse_packet_header(&buffer) {
+            HeaderParse::Parsed(header) => {
+                assert_eq!(header.size as usize, MAX_PACKET_BODY_SIZE - 1)
+            }
+            other => panic!("expected a parsed header, got {:?}", other),
+        }
+    }
+
+    /// The read path rejects a header at the limit, so the write path must not produce one.
+    #[test]
+    fn a_body_at_the_size_limit_is_refused() {
+        assert!(matches!(
+            serialize_body_of(MAX_PACKET_BODY_SIZE),
+            Err(Error::PacketTooLarge(size, limit))
+                if size == MAX_PACKET_BODY_SIZE && limit == MAX_PACKET_BODY_SIZE
+        ));
+    }
+
+    /// A body of 65536 casts to a length of 0, which framed the packet as empty and left the
+    /// body to be parsed as headers, desynchronising the connection permanently.
+    #[test]
+    fn a_body_that_would_wrap_the_length_field_is_refused() {
+        let wrapping_size = u16::MAX as usize + 1;
+
+        assert!(matches!(
+            serialize_body_of(wrapping_size),
+            Err(Error::PacketTooLarge(size, _)) if size == wrapping_size
+        ));
+    }
+
+    #[test]
+    fn an_empty_body_is_serialized() {
+        let data = serialize_body_of(0).expect("an empty body is legal");
+
+        assert_eq!(data.len(), PACKET_HEADER_SIZE);
     }
 }

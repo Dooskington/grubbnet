@@ -26,6 +26,13 @@ a complete packet can be pulled off the front of it. A packet body may be up to 
 (`MAX_PACKET_BODY_SIZE` is 8192, and the check is exclusive), so the buffer always has roughly
 twice the headroom of the largest legal packet.
 
+The same bound is enforced on the way out: `serialize_packet` returns `Error::PacketTooLarge`
+rather than emitting a packet the receiver is obliged to reject. This matters because the body
+length is a 16 bit field, so a body of 65536 or more would otherwise wrap it and leave the peer
+parsing the body as headers, desynchronising the connection for good. A body that is too large
+is a bug in the sending application, so it is reported to that application instead of being put
+on the wire.
+
 Packets are framed, not message-oriented, so none of this is affected by how a peer chooses to
 split its writes. A packet spread across several `write` calls is reassembled, and several
 packets delivered in a single `write` burst all arrive intact and in order, however the bytes
